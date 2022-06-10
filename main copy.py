@@ -119,10 +119,12 @@ def draw_cube(P, theta, u):
     ax.add_patch(body)
 
 
-def kin_controller(x, path_to_follow):
+def dyn_controller(x,der, path_to_follow):
     global end_of_path
-    Vt = x[2:4]
-    vu, vv = Vt[0:2]
+    Vt,dtheta_m = x[2:4],x[5]
+    u,v = Vt[0:2]
+    theta,dtheta=x[4:6]
+    u_last,du_last,dy1_last=der
 
     X, theta_m = x[0:2], x[4]
     M = np.array([[cos(theta_m), -sin(theta_m), 0], [sin(theta_m), cos(theta_m), 0], [0, 0, 1]])
@@ -142,21 +144,41 @@ def kin_controller(x, path_to_follow):
     dpsi_F = F.C_c * ds
 
     # delta
+    du=(u-u_last)/dt
+    ddu=(du-du_last)/dt
+    ddy1=(dy1-dy1_last)/dt
     Kdy1 = 1
-    delta = -pi / 2 * tanh(Kdy1 * y1 * Vt[0])
-    ddelta = -pi / 2 * Kdy1 * (1 - tanh(Kdy1 * y1 * Vt[0]) ** 2) * dy1 * Vt[0]
-    delta1 = -pi / 2 * tanh(y1 * Vt[1]) + pi / 2
-
-    K = 4
+    delta = -pi / 2 * tanh(Kdy1 * y1 * u)
+    ddelta = -pi / 2 * Kdy1 * (1 - tanh(Kdy1 * y1 * u) ** 2) * dy1 * du
+    dddelta=-pi/2*(Kdy1*(ddu*y1+2*du*dy1 +u*ddy1)*(1-tanh(Kdy1*u*y1)**2) -2*Kdy1**2*(du*y1+u*dy1)**2*(1-tanh(Kdy1*u*y1)**2)*tanh(Kdy1*u*y1))
+    
     gamma = 0.5
-    if theta - delta != 0:
-        dpsi = dpsi_F + (ddelta - K * (theta - delta) - gamma * y1 * (
-                vu * (sin(theta) - sin(delta)) / sawtooth(theta - delta) + vv * (cos(theta) - cos(delta1)) / sawtooth(
-                theta - delta)))
-    else:
-        dpsi = dpsi_F + (ddelta - K * (theta - delta) - gamma * y1 * (vu + vv))
-    u = np.array([vu, vv, dpsi])
-    return u, ds
+    k2=3
+    k3=2
+    zeta=ddelta-gamma*y1*u*(sin(theta) - sin(delta)) / sawtooth(theta - delta) - k2*sawtooth(theta-delta)
+    dzeta=dddelta - gamma*y1*u*((dtheta*cos(theta)-ddelta*cos(delta))*sawtooth(theta-delta)-(dtheta-ddelta)*(sin(theta)-sin(delta)))/(sawtooth(theta-delta)**2)-gamma*(dy1*u+du*y1)*(sin(theta) - sin(delta)) / sawtooth(theta - delta)-k2*(dtheta-ddelta)
+    eps=dtheta-zeta
+    deps=-1/gamma*sawtooth(theta-delta) - k3*eps
+    ddtheta=deps+dzeta
+
+    ddtheta=deps+dzeta
+
+    k=10
+    nu=3
+    Vtd=R(delta-theta)@np.array([nu,0])
+    dVtd=R(delta-theta)@np.array([0,(ddelta-dtheta)*nu]).flatten()
+    ddVt=(dVtd -y1*np.array([sin(theta),cos(theta)])-k*(Vt-Vtd)).reshape((2,1)).flatten()
+    controller = np.array([0,0, ddtheta])
+    A = 1 / m * np.array([[cos(alpha1), cos(alpha2), cos(alpha3), cos(alpha4)],
+                          [sin(alpha1), sin(alpha2), sin(alpha3), sin(alpha4)],
+                          [-d / J * cos(alpha1 + pi / 4), d / J * cos(alpha2 - pi / 4), -d / J * cos(alpha3 - 3 * pi / 4),
+                           d / J * cos(alpha4 - 5 * pi / 4)]])
+    b = np.vstack((-dtheta_m * (R(pi / 2) @ Vt).reshape((2, 1)), 0)).flatten()
+    A_plus=np.linalg.pinv(A) #penrose inverse
+    forces=A_plus@(controller-b)
+    forces=forces.flatten()
+    print("forces",forces)
+    return forces, ds
 
 
 d = 1
@@ -183,19 +205,45 @@ fig, ax = plt.subplots(figsize=(5, 4))
 # T is the list temporal values, state_info[i] is the state x(t_i) where t_i=T[i]
 T, state_info = [], []
 t_break = 0  # it will be the time at which the simulation stops
-vu, vv = 10, 0  # initial speed values along the u and v axis
+vu, vv = 5, 0  # initial speed values along the u and v axis
 x0 = np.array([-5, 10, vu, vv, 0, 0])  # (x,y,vu,vv,theta_m,dtheta_m)
-u0 = np.array([0, 0, 0])  # (f1,f2,f3)
+u0 = np.array([0, 0, 0,0])  # (f1,f2,f3,f4)
+du0=0
+ddu0=0
+s = 0
+ds = 0
+F0=path_info_update(path_to_follow, s)
+X0 = x0[0:2]
+theta_c0=F0.psi
+_, y10 = R(theta_c0).T @ (X0 - F0.X)
+der=np.array([vu,du0,y10])
 
 path = [x0[0:2]]  # Red dots on the screen, path that the robot follows
 x = x0
 u = u0
-s = 0
+
 draw, end_of_path = 1, 0
-ds = 0
+
+def g(x,u,s,ds):
+    Vt=x[2:4]
+    X = x[0:2]
+    theta_m=x[4]
+    F = path_info_update(path_to_follow, s)
+    theta_c = F.psi
+    der[0]=x[2]
+    der[1]=state(x,u)[2]
+    der[2]=(R(theta_c).T @ (X - F.X))[1]
+    s1, y1 = R(theta_c).T @ (X - F.X)
+
+    dX_F = np.array([ds, 0])
+    _, dy1 = (R(theta_m-theta_c)) @ Vt - dX_F
+    der[2]=dy1
+    return der
+
 for t in np.arange(0, 20, dt):
-    u_kin, ds = kin_controller(x, path_to_follow)
-    u = dynamic_controller(x, u_kin)
+    der=g(x,u,s,ds)
+    print(der)
+    u,ds = dyn_controller(x, der,path_to_follow)
     if end_of_path:
         print("End of simulation")
         break
