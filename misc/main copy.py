@@ -88,21 +88,6 @@ def state(X, u):
 def R(theta):
     return np.array([[cos(theta), -sin(theta)], [sin(theta), cos(theta)]])
 
-
-L, r = 0.5, 0.25
-m = 1
-J = 1
-
-a, b = 1, 1
-
-# Angle of the forces
-n = 4
-alpha1 = pi/(10^n)
-alpha2 = 0
-alpha3 = pi
-alpha4 = pi
-
-
 def draw_cube(P, theta, u):
     theta_deg = 180 * theta / pi - 90
 
@@ -119,14 +104,13 @@ def draw_cube(P, theta, u):
     ax.add_patch(body)
 
 
-def dyn_controller(x,der, path_to_follow):
+def dyn_controller(x, path_to_follow):
     global end_of_path
-    Vt,dtheta_m = x[2:4],x[5]
-    u,v = Vt[0:2]
-    theta,dtheta=x[4:6]
-    u_last,du_last,dy1_last=der
+    Vt=x[2:4]
+    u,v = Vt
+    theta_m,dtheta_m=x[4:6]
 
-    X, theta_m = x[0:2], x[4]
+    X = x[0:2]
     M = np.array([[cos(theta_m), -sin(theta_m), 0], [sin(theta_m), cos(theta_m), 0], [0, 0, 1]])
     F = path_info_update(path_to_follow, s)
     if not F:
@@ -137,113 +121,86 @@ def dyn_controller(x,der, path_to_follow):
     s1, y1 = rotation.T @ (X - F.X)
     theta = theta_m - theta_c
     K_ds = 5
-    ds = vu * cos(theta) - sin(theta) * vv + K_ds * s1
+    ds = u * cos(theta) - sin(theta) * v + K_ds * s1
 
     dX_F = np.array([ds, 0])
-    ds1, dy1 = (M[0:2, 0:2] @ rotation.T) @ (Vt[0:2]) - dX_F
-    dpsi_F = F.C_c * ds
+    ds1, dy1 = (M[0:2, 0:2] @ rotation.T) @ Vt - dX_F
+    dtheta_c = F.C_c * ds
+    dtheta=dtheta_m-dtheta_c
 
-    # delta
-    du=(u-u_last)/dt
-    ddu=(du-du_last)/dt
-    ddy1=(dy1-dy1_last)/dt
+    
+    du=0
     Kdy1 = 1
     delta = -pi / 2 * tanh(Kdy1 * y1 * u)
-    ddelta = -pi / 2 * Kdy1 * (1 - tanh(Kdy1 * y1 * u) ** 2) * dy1 * du
-    dddelta=-pi/2*(Kdy1*(ddu*y1+2*du*dy1 +u*ddy1)*(1-tanh(Kdy1*u*y1)**2) -2*Kdy1**2*(du*y1+u*dy1)**2*(1-tanh(Kdy1*u*y1)**2)*tanh(Kdy1*u*y1))
+    ddelta = -pi / 2 * Kdy1 * (1 - tanh(Kdy1 * y1 * u) ** 2) * (dy1*u+y1*du)
+    # dddelta=-pi/2*(Kdy1*(ddu*y1+2*du*dy1 +u*ddy1)*(1-tanh(Kdy1*u*y1)**2) -2*Kdy1**2*(du*y1+u*dy1)**2*(1-tanh(Kdy1*u*y1)**2)*tanh(Kdy1*u*y1))
     
-    gamma = 0.5
-    k2=3
-    k3=2
-    zeta=ddelta-gamma*y1*u*(sin(theta) - sin(delta)) / sawtooth(theta - delta) - k2*sawtooth(theta-delta)
-    dzeta=dddelta - gamma*y1*u*((dtheta*cos(theta)-ddelta*cos(delta))*sawtooth(theta-delta)-(dtheta-ddelta)*(sin(theta)-sin(delta)))/(sawtooth(theta-delta)**2)-gamma*(dy1*u+du*y1)*(sin(theta) - sin(delta)) / sawtooth(theta - delta)-k2*(dtheta-ddelta)
-    eps=dtheta-zeta
-    deps=-1/gamma*sawtooth(theta-delta) - k3*eps
-    ddtheta=deps+dzeta
+    # gamma = 0.5
+    # k2=3
+    # k3=2
+    # zeta=ddelta-gamma*y1*u*(sin(theta) - sin(delta)) / sawtooth(theta - delta) - k2*sawtooth(theta-delta)
+    # dzeta=dddelta - gamma*y1*u*((dtheta*cos(theta)-ddelta*cos(delta))*sawtooth(theta-delta)-(dtheta-ddelta)*(sin(theta)-sin(delta)))/(sawtooth(theta-delta)**2)-gamma*(dy1*u+du*y1)*(sin(theta) - sin(delta)) / sawtooth(theta - delta)-k2*(dtheta-ddelta)
+    # eps=dtheta-zeta
+    # deps=-1/gamma*sawtooth(theta-delta) - k3*eps
+    # ddtheta=deps+dzeta
 
-    ddtheta=deps+dzeta
+    # ddtheta=deps+dzeta+dtheta_c
+    ddtheta_m=0
 
     k=10
     nu=3
+    dnu=0
     Vtd=R(delta-theta)@np.array([nu,0])
-    dVtd=R(delta-theta)@np.array([0,(ddelta-dtheta)*nu]).flatten()
+    dVtd=R(delta-theta)@np.array([dnu,(ddelta-dtheta)*nu]).flatten()
     ddVt=(dVtd -y1*np.array([sin(theta),cos(theta)])-k*(Vt-Vtd)).reshape((2,1)).flatten()
-    controller = np.array([0,0, ddtheta])
+    controller = np.array([ddVt[0],ddVt[1], ddtheta_m])
     A = 1 / m * np.array([[cos(alpha1), cos(alpha2), cos(alpha3), cos(alpha4)],
                           [sin(alpha1), sin(alpha2), sin(alpha3), sin(alpha4)],
                           [-d / J * cos(alpha1 + pi / 4), d / J * cos(alpha2 - pi / 4), -d / J * cos(alpha3 - 3 * pi / 4),
                            d / J * cos(alpha4 - 5 * pi / 4)]])
     b = np.vstack((-dtheta_m * (R(pi / 2) @ Vt).reshape((2, 1)), 0)).flatten()
     A_plus=np.linalg.pinv(A) #penrose inverse
-    forces=A_plus@(controller-b)
-    forces=forces.flatten()
-    print("forces",forces)
+    forces=A_plus@(controller-b).flatten()
     return forces, ds
 
 
-d = 1
+#Properties of the model
+m = 1
+J = 1
 
+d = 2**0.5
 
-def dynamic_controller(x, u_kin):
-    Vt = x[2:4]
-    dtheta_m = x[5]
-    A = 1 / m * np.array([[cos(alpha1), cos(alpha2), cos(alpha3), cos(alpha4)],
-                          [sin(alpha1), sin(alpha2), sin(alpha3), sin(alpha4)],
-                          [-d / J * cos(alpha1 + pi / 4), d / J * cos(alpha2 - pi / 4),
-                           -d / J * cos(alpha3 - 3 * pi / 4),
-                           d / J * cos(alpha4 - 5 * pi / 4)]])
+a, b = 1, 1
 
-    b = np.vstack((-dtheta_m * (R(pi / 2) @ Vt).reshape((2, 1)), 0)).flatten()
-    L_plus = np.linalg.pinv(A)  # penrose inverse
-    u = L_plus @ (2 * (u_kin - np.vstack((Vt.reshape((2, 1)), dtheta_m)).flatten()) - b)
-    return u
+# Angle of the forces
+alpha1 = pi/2
+alpha2 = 0.8
+alpha3 = pi
+alpha4 = pi
 
 
 # Drawing and window info
 dt, w_size, w_shift = 0.01, 15, -7
-fig, ax = plt.subplots(figsize=(5, 4))
-# T is the list temporal values, state_info[i] is the state x(t_i) where t_i=T[i]
-T, state_info = [], []
+fig, ax = plt.subplots(figsize=(9,8))
+
+T, state_info = [], [] # T is the list temporal values, state_info[i] is the state x(t_i) where t_i=T[i]
 t_break = 0  # it will be the time at which the simulation stops
-vu, vv = 5, 0  # initial speed values along the u and v axis
+vu, vv = 1, 0  # initial speed values along the u and v axis
 x0 = np.array([-5, 10, vu, vv, 0, 0])  # (x,y,vu,vv,theta_m,dtheta_m)
-u0 = np.array([0, 0, 0,0])  # (f1,f2,f3,f4)
-du0=0
-ddu0=0
-s = 0
-ds = 0
-F0=path_info_update(path_to_follow, s)
-X0 = x0[0:2]
-theta_c0=F0.psi
-_, y10 = R(theta_c0).T @ (X0 - F0.X)
-der=np.array([vu,du0,y10])
+u0 = np.array([0, 0, 0, 0])  # (f1,f2,f3,f4)
+s0 = 0
+
 
 path = [x0[0:2]]  # Red dots on the screen, path that the robot follows
 x = x0
 u = u0
+s=s0
 
 draw, end_of_path = 1, 0
 
-def g(x,u,s,ds):
-    Vt=x[2:4]
-    X = x[0:2]
-    theta_m=x[4]
-    F = path_info_update(path_to_follow, s)
-    theta_c = F.psi
-    der[0]=x[2]
-    der[1]=state(x,u)[2]
-    der[2]=(R(theta_c).T @ (X - F.X))[1]
-    s1, y1 = R(theta_c).T @ (X - F.X)
-
-    dX_F = np.array([ds, 0])
-    _, dy1 = (R(theta_m-theta_c)) @ Vt - dX_F
-    der[2]=dy1
-    return der
 
 for t in np.arange(0, 20, dt):
-    der=g(x,u,s,ds)
-    print(der)
-    u,ds = dyn_controller(x, der,path_to_follow)
+    u,ds=dyn_controller(x,path_to_follow)
     if end_of_path:
         print("End of simulation")
         break
@@ -254,13 +211,6 @@ for t in np.arange(0, 20, dt):
         ax.set_xlim(-w_size - w_shift, w_size - w_shift)
         ax.set_ylim(-w_size, w_size)
         draw_cube(x[0:2], x[4], u)
-
-        # To plot foces
-        # ax.quiver(*x[0:2],*R(x[4])@vtd)
-        # ax.quiver(*(x[0:2]+R(x[4])@R(0)@np.array([L,0])),*R(x[4]-pi/2)@np.array([u[0],0]),color='red',scale=10)
-        # ax.quiver(*(x[0:2]+R(x[4])@R(alpha2)@np.array([L,0])),*R(x[4]-pi/2+alpha2)@np.array([u[1],0]),color='red',scale=10)
-        # ax.quiver(*(x[0:2]+R(x[4])@R(alpha3)@np.array([L,0])),*R(x[4]-pi/2+alpha3)@np.array([u[2],0]),color='red',scale=10)
-
         ax.scatter(*path_info_update(path_to_follow, s).X, c='#34F44C')
         ax.plot(*path_to_follow.X.T, c='#3486F4')
         if (t / dt) % 30 == 0:  # Change the value to change the frequency of the red dots of the path

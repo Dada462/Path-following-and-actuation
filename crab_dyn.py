@@ -72,10 +72,7 @@ def path_info_update(path_info_last,s):
         return path_info
 
 
-alpha2=pi/2
-alpha3=-pi/2
-d1=d2=d3=1
-d1=0
+
 def state(X,u):
     _,_,vtx,vty,theta_m,dtheta_m=X.flatten()
     Vt=np.array([vtx,vty])
@@ -167,13 +164,14 @@ def dynamic_controller(x,u_kin):
     u=A_plus@(u_kin-b) + k
     return u
 
-def dynamic_controller2(x,s):
+def dynamic_controller2(x,s,s_last):
     global end_of_path
     Vt=x[2:4]
     dtheta_m=x[5]
 
     X,theta_m=x[0:2],x[4]
     M=np.array([[cos(theta_m),-sin(theta_m),0],[sin(theta_m),cos(theta_m),0],[0,0,1]])
+    F_last = path_info_update(path_to_follow,s_last)
     F = path_info_update(path_to_follow,s)
     if F==None:
         end_of_path=1
@@ -184,9 +182,11 @@ def dynamic_controller2(x,s):
     theta = theta_m-theta_c
     ks=3
     ds=np.dot(R(theta)[0,:],Vt) + ks*s1
-    
+    ds_last=(s-s_last)/dt
+    dds=(ds-ds_last)/dt
     ds1,dy1= (M[0:2,0:2]@R_c.T)@(Vt[0:2])-np.array([ds,0])
     dtheta_c = F.C_c*ds
+    ddtheta_c = (F.C_c-F_last.C_c)/dt
     dtheta=dtheta_m-dtheta_c
     # dds1,ddy1=R(theta)@(-theta_c/m*A[0:2,:]@u_last - np.array([dds,]))
 
@@ -208,10 +208,14 @@ def dynamic_controller2(x,s):
     # ddtheta=k0*tanh(dy1)-k1*tanh(dy1)+1.5*tanh(s1)+2*tanh(ds1)
     # beta=np.arctan2(*Vt)
     # ddtheta=-8*dtheta_m+16*sawtooth(-theta_m)
-    ddtheta=0
+    # ddtheta=-y1
+    # dthetad=1
+    # ddthetad=0
+    # ddtheta=1*(dthetad-dtheta)+ddthetad
+    # ddtheta_m=ddtheta+ddtheta_c
     k=10
-    ddVt=(dVtd -y1*np.array([sin(theta),cos(theta)])-k*(Vt-Vtd)).reshape((2,1))
-    F=A_plus@(np.vstack((ddVt,-dtheta_m)).flatten()-b)
+    dVt=(dVtd -y1*np.array([sin(theta),cos(theta)])-k*(Vt-Vtd)).reshape((2,1))
+    F=A_plus@(np.vstack((dVt[0],dVt[1],0)).flatten()-b)
     u=F.flatten()
 
     return u,ds
@@ -242,6 +246,12 @@ def key_press():
         end_of_path=1
     u_kin=key
 
+
+alpha2=pi/2
+alpha3=-pi/2
+d1=d2=d3=1
+d1=1
+
 #Drawing and window info
 dt,w_size,w_shift= 0.01,15,-7
 fig,ax=plt.subplots(figsize=(8,7))
@@ -256,20 +266,19 @@ path=[x0[0:2]]#Red dots on the screen, path that the robot follows
 x=x0
 u=u0
 s=0
-draw,end_of_path=1,0
 ds=0
-Vtd=np.array([1,1])
+draw,end_of_path=1,0
 
 for t in np.arange(0,30,dt):
-    # u_kin,ds=kin_controller(x,path_to_follow)
-    u,ds=dynamic_controller2(x,s)
-    key_press()
-
+    s_last=s
+    s=s+ds*dt
+    u,ds=dynamic_controller2(x,s,s_last)
+    # u=np.array([0,0,0])
+    # key_press()
     if end_of_path:
         print("End of simulation")
         break 
-    if s<0:
-        s=0
+    
     #Drawing and screen update
     if draw and (t/dt)%5==0:
         ax.clear()
@@ -279,12 +288,12 @@ for t in np.arange(0,30,dt):
             ax.text(w_size, w_size+0.5,'MOTOR DEAD', style='italic',bbox={'facecolor': 'red', 'alpha': 0.5, 'pad': 5})
         ax.plot(*path_to_follow.X.T,c='#3486F4')
         draw_crab(x[0:2],x[4])
-        ax.quiver(*(x[0:2]),*R(x[4])@x[2:4],color='red',scale=10)
+        # ax.quiver(*(x[0:2]),*R(x[4])@x[2:4],color='red',scale=10)
         
         #To plot foces
-        # ax.quiver(*(x[0:2]+R(x[4])@R(0)@np.array([L,0])),*R(x[4]-pi/2)@np.array([u[0],0]),color='red',scale=10)
-        # ax.quiver(*(x[0:2]+R(x[4])@R(alpha2)@np.array([L,0])),*R(x[4]-pi/2+alpha2)@np.array([u[1],0]),color='red',scale=10)
-        # ax.quiver(*(x[0:2]+R(x[4])@R(alpha3)@np.array([L,0])),*R(x[4]-pi/2+alpha3)@np.array([u[2],0]),color='red',scale=10)
+        ax.quiver(*(x[0:2]+R(x[4])@R(0)@np.array([L,0])),*R(x[4]-pi/2)@np.array([u[0],0]),color='red',scale=10)
+        ax.quiver(*(x[0:2]+R(x[4])@R(alpha2)@np.array([L,0])),*R(x[4]-pi/2+alpha2)@np.array([u[1],0]),color='red',scale=10)
+        ax.quiver(*(x[0:2]+R(x[4])@R(alpha3)@np.array([L,0])),*R(x[4]-pi/2+alpha3)@np.array([u[2],0]),color='red',scale=10)
         
         ax.scatter(*path_info_update(path_to_follow,s).X,c='#34F44C')
         if (t/dt)%30==0: #Change the value to change the frequency of the red dots of the path
@@ -301,8 +310,11 @@ for t in np.arange(0,30,dt):
     state_info.append(x)
     x=rungeKutta2(x,u,dt,state)
     x[4]=sawtooth(x[4])
-    s=s+ds*dt
+    s=max(0,s)
     t_break=t
+    ds_last=ds
+    u,ds=dynamic_controller2(x,s,ds_last)
+
 
 
 # Plotting results
