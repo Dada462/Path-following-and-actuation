@@ -52,22 +52,22 @@ def find(elements,s):
     if inds!=[]:
         return inds[0]
     else:
-        return "None"
+        return -1
 
 def path_info_update(path_info_last,s):
     I=find((path_info_last.s),s)
     path_info=path_data(0,0,0,0)
-    if I=='None':
-        print('End of the path')
-        return None
-    else:
-        Delta_S_Lievre = (path_info_last.s)[I]-(path_info_last.s)[I-1]
-        ratio_S_Lievre = (s-path_info_last.s[I-1])/Delta_S_Lievre
-        path_info.s = s
-        path_info.psi = path_info_last.psi[I-1]*(1-ratio_S_Lievre) + path_info_last.psi[I]*(ratio_S_Lievre)
-        path_info.C_c = path_info_last.C_c[I-1]*(1-ratio_S_Lievre) + path_info_last.C_c[I]*(ratio_S_Lievre)
-        path_info.X = path_info_last.X[I-1]*(1-ratio_S_Lievre) + path_info_last.X[I]*(ratio_S_Lievre)
-        return path_info
+    # if I=='None':
+    #     print('End of the path')
+    #     return None
+    # else:
+    Delta_S_Lievre = (path_info_last.s)[I]-(path_info_last.s)[I-1]
+    ratio_S_Lievre = (s-path_info_last.s[I-1])/Delta_S_Lievre
+    path_info.s = s
+    path_info.psi = path_info_last.psi[I-1]*(1-ratio_S_Lievre) + path_info_last.psi[I]*(ratio_S_Lievre)
+    path_info.C_c = path_info_last.C_c[I-1]*(1-ratio_S_Lievre) + path_info_last.C_c[I]*(ratio_S_Lievre)
+    path_info.X = path_info_last.X[I-1]*(1-ratio_S_Lievre) + path_info_last.X[I]*(ratio_S_Lievre)
+    return path_info
 def R(theta):
     return np.array([[cos(theta),-sin(theta)],[sin(theta),cos(theta)]])
     
