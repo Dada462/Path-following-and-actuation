@@ -1,9 +1,9 @@
 from cmath import atan
-from numpy import cos,sin,tanh,arctan,pi
+from numpy import cos,sin,tanh,arctan,arctan2,pi
 import numpy as np
 import keyboard
 import matplotlib.pyplot as plt
-from tools import rungeKutta2,sawtooth,mat_reading,R,path_info_update,draw_crab,show_info,key_press
+from tools import rungeKutta2,sawtooth,mat_reading,R,path_info_update,draw_crab,show_info,key_press,R3
 
 
 def state(X,controller):
@@ -17,77 +17,49 @@ def state(X,controller):
     ddtheta_m=dVt_and_ddtheta_m[2]
     return np.hstack((R(theta_m)@Vt,dVt,ds,dtheta_m,ddtheta_m))
 
-def dynamic_controller2(x,last_values):
+def dynamic_controller2(x,dVt,u_last):
     global end_of_path
     X=x[0:2]
     Vt=x[2:4]
     s=x[4]
     theta_m,dtheta_m=x[5:7]
-
+    u,v=Vt
+    nu=(u**2+v**2)**0.5
+    dnu=dVt.T@Vt/nu
+    if nu==0:
+        return np.array([1,-1,1])
     F = path_info_update(path_to_follow,s)
     if F==None:
-        # end_of_path=1
-        F=last_values[-2]
+        end_of_path=1
         return np.array([0,0,0,0])
     theta_c=F.psi
     theta = theta_m-theta_c
+    beta=arctan2(Vt[1],Vt[0])
+    psi=sawtooth(theta+beta)
 
     s1,y1 = R(theta_c).T@(X-F.X)
     
     ks=3
-    ds=np.dot(R(theta)[0,:],Vt) + ks*s1
+    ds=cos(psi)*nu +ks*s1
     dtheta_c = F.C_c*ds
-    ds1,dy1= R(theta)@Vt-ds*np.array([1-F.C_c*y1,F.C_c*s1])
+    ds1,dy1= R(psi)@np.array([nu,0])-ds*np.array([1-F.C_c*y1,F.C_c*s1])
     dtheta=dtheta_m-dtheta_c
 
 
-    Kdy1=3
-    nu=1
-    dnu=0
-    # delta = -pi/2*tanh(Kdy1*y1*nu)
-    # ddelta = -pi/2*Kdy1*(1-tanh(Kdy1*y1*nu)**2)*(dy1*nu+dnu*dy1)
+    Kdy1=5
+    delta = -pi/2*tanh(Kdy1*y1*nu)
+    ddelta = -pi/2*Kdy1*(1-tanh(Kdy1*y1*nu)**2)*(dy1*nu+dnu*dy1)
     
-    Vt_last,dY_last,dvr_last,F_last,ds_last=last_values
-    dtheta_c_last=F_last.C_c*ds_last
-    dvr=(Vt-Vt_last)/dt
-    du,dv=dvr
-    ddu,ddv=(dvr-dvr_last)/dt
-    dY=np.array([ds1,dy1])
-    ddY=(dY-dY_last)/dt
-    dds1,ddy1=ddY
-
-    u,v=Vt
-    delta = -pi/2*tanh(Kdy1*y1*u)
-    ddelta = -pi/2*Kdy1*(1-tanh(Kdy1*y1*u)**2)*(dy1*u+du*dy1)
-    dddelta=-pi/2*(Kdy1*(ddu*y1+2*du*dy1 +u*ddy1)*(1-tanh(Kdy1*u*y1)**2) -2*Kdy1**2*(du*y1+u*dy1)**2*(1-tanh(Kdy1*u*y1)**2)*tanh(Kdy1*u*y1))
     gamma = 0.5
-    k2=10
-    k3=1
-    if theta-delta!=0:
-        zeta=ddelta-gamma*y1*u*(sin(theta) - sin(delta)) / sawtooth(theta - delta) - k2*sawtooth(theta-delta)
-        dzeta=dddelta - gamma*y1*u*((dtheta*cos(theta)-ddelta*cos(delta))*sawtooth(theta-delta)-(dtheta-ddelta)*(sin(theta)-sin(delta)))/(sawtooth(theta-delta)**2)-gamma*(dy1*u+du*y1)*(sin(theta) - sin(delta)) / sawtooth(theta - delta)-k2*(dtheta-ddelta)
-        eps=dtheta-zeta
-        deps=-1/gamma*sawtooth(theta-delta) - k3*eps
-        ddtheta=deps+dzeta
-        ddtheta_c=(dtheta_c-dtheta_c_last)/dt
-        ddtheta_m=ddtheta+ddtheta_c
-    else:
-        # zeta=ddelta-gamma*y1*u
-        # dzeta=dddelta - gamma*y1*u*((dtheta*cos(theta)-ddelta*cos(delta))*sawtooth(theta-delta)-(dtheta-ddelta)*(sin(theta)-sin(delta)))/(sawtooth(theta-delta)**2)-gamma*(dy1*u+du*y1)-k2*(dtheta-ddelta)
-        # eps=dtheta-zeta
-        # deps=-1/gamma*sawtooth(theta-delta) - k3*eps
-        # ddtheta=deps+dzeta
-        # ddtheta_c=(dtheta_c-dtheta_c_last)/dt
-        ddtheta_m=0
+    k2=1
+    dpsi=ddelta-gamma*y1*nu*(sin(psi) - sin(delta)) / sawtooth(psi - delta) - k2*sawtooth(psi-delta)
+    vtd=(1-nu)
+    dbeta=dpsi-dtheta
+    ddtheta_m=-dtheta_m+(pi/4-theta_m)
+    W=np.array([vtd,dbeta,ddtheta_m])
 
-    Vtd=R(delta-theta)@np.array([nu,0])
-    dVtd=R(delta-theta)@np.array([dnu,(ddelta-dtheta)*nu])
-    
-    b=np.vstack((-dtheta_m*(R(pi/2)@Vt).reshape((2,1)),0)).flatten()
-    k=3
-    dVt=(dVtd -y1*np.array([sin(theta),cos(theta)])-k*(Vt-Vtd)).reshape((2,1))
-    F=A_plus@(np.vstack((*dVt,0)).flatten()-b)
-    F=F.flatten()
+    B=R3(beta).T@np.array([[1,0,0],[0,1/nu,0],[0,0,1]])@A
+    F=np.linalg.pinv(B)@(W+np.array([0,theta_m,0]))
 
     return np.array([F[0],F[1],F[2],ds])
 
@@ -103,14 +75,12 @@ r=0.25
 m=1
 J=0.1
 D=np.array([[d1,0,0],[0,d2,0],[0,0,d3]])
-A=1/m*np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-r/J,-r/J,-r/J]])@D
+A=1/m*np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-m*L/J,-m*L/J,-m*L/J]])@D
 A_plus=np.linalg.pinv(A) #penrose inverse
 
 
-
-
 #Drawing and window info
-dt,w_size,w_shift= 0.01,15,7
+dt,w_size,w_shift= 0.01,15,-7
 fig,ax=plt.subplots(figsize=(8,7))
 
 #Lists to stock the information. For viewing resulsts after the simulation
@@ -135,9 +105,8 @@ key=np.array([0,0,0]) #To control the robot using the keyboard
 x=x0
 u=u0
 
-
 draw,end_of_path=1,0
-
+data=[]
 for t in np.arange(0,100,dt):
     if end_of_path:
         print("End of simulation")
@@ -146,19 +115,6 @@ for t in np.arange(0,100,dt):
     X=x[0:2]
     Vt=x[2:4]
     theta_m,dtheta_m=x[5:7]
-    F = path_info_update(path_to_follow,x[4])
-    theta_c=F.psi
-    theta = theta_m-theta_c
-
-    s1,y1 = R(theta_c).T@(X-F.X)
-    
-    ds=u[-1]
-    dtheta_c = F.C_c*ds
-    ds1,dy1= R(theta)@Vt-ds*np.array([1-F.C_c*y1,F.C_c*s1])
-    dvr_last=state(x,u)[0:2]
-    dY_last=np.array([ds1,dy1])
-    last_values=[Vt,dY_last,dvr_last,F,u[-1]]
-
 
     if draw and (t/dt)%20==0:
         s=x[4]
@@ -170,11 +126,20 @@ for t in np.arange(0,100,dt):
         if (t/dt)%30==0: #Change the value to change the frequency of the red dots of the path
             path.append(X)
         plt.pause(10**-10)
+    
     #Update of the state of the simulation
     t_break=t
     T.append(t)
+    dVt=state(x,u)[2:4]
     state_info.append(x)
+    u=dynamic_controller2(x,dVt,u)
     x=rungeKutta2(x,u,dt,state)
-    u=dynamic_controller2(x,last_values)
     x[4]=max(0,x[4])
     x[5]=sawtooth(x[5])
+
+
+# ax.clear()
+# ax.plot(T, data, color='red')
+# ax.set_xlabel('time (s)')
+# ax.set_ylabel('data')
+# plt.show()
