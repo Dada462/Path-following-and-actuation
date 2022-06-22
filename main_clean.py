@@ -17,7 +17,7 @@ def state(X,controller):
     ddtheta_m=dVt_and_ddtheta_m[2]
     return np.hstack((R(theta_m)@Vt,dVt,ds,dtheta_m,ddtheta_m))
 
-def dynamic_controller2(x,dVt,u_last):
+def dynamic_controller2(x,dVt):
     global end_of_path
     X=x[0:2]
     Vt=x[2:4]
@@ -132,7 +132,7 @@ for t in np.arange(0,100,dt):
     T.append(t)
     dVt=state(x,u)[2:4]
     state_info.append(x)
-    u=dynamic_controller2(x,dVt,u)
+    u=dynamic_controller2(x,dVt)
     x=rungeKutta2(x,u,dt,state)
     x[4]=max(0,x[4])
     x[5]=sawtooth(x[5])
