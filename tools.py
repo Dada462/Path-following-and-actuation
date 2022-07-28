@@ -1,7 +1,7 @@
-import scipy.io
+# import scipy.io
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy import cos, sin, pi
+from numpy import cos, sin, pi,arctan2
 import keyboard
 
 
@@ -21,39 +21,105 @@ def sawtooth(x):
 
 
 class path_data:
-    def __init__(self, X, psi, s, C_c):
+    def __init__(self, X, psi, s, C_c,dC_c):
         self.s = s
         self.psi = psi
         self.C_c = C_c
+        self.dC_c = dC_c
         self.X = X
-
     def __str__(self):
         return str(self.s) + ' ' + str(self.psi) + ' ' + str(self.C_c) + ' ' + str(self.X)
 
 
-def mat_reading(path='PATH.mat'):  # Return the path for follow info: s,X,psi,C_c
-    mat = scipy.io.loadmat(path)
+# def mat_reading1(path='PATH.mat'):  # Return the path for follow info: s,X,psi,C_c
+#     mat = scipy.io.loadmat(path)
 
-    s = []
-    for i in range(len(mat['Chemin']['s'][0, :])):
-        s.append(mat['Chemin']['s'][0, :][i][0][0])
-    s = np.array(s)
+#     s = []
+#     for i in range(len(mat['Chemin']['s'][0, :])):
+#         s.append(mat['Chemin']['s'][0, :][i][0][0])
+#     s = np.array(s)
 
-    X = np.array([[], []])
-    for i in range(len(mat['Chemin']['X'][0, :])):
-        X = np.hstack((X, mat['Chemin']['X'][0, :][i]))
-    X = X.T
+#     X = np.array([[], []])
+#     for i in range(len(mat['Chemin']['X'][0, :])):
+#         X = np.hstack((X, mat['Chemin']['X'][0, :][i]))
+#     X = X.T
 
-    psi = []
-    for i in range(len(mat['Chemin']['psi'][0, :])):
-        psi.append(mat['Chemin']['psi'][0, :][i][0][0])
-    psi = np.array(psi)
+#     psi = []
+#     for i in range(len(mat['Chemin']['psi'][0, :])):
+#         psi.append(mat['Chemin']['psi'][0, :][i][0][0])
+#     psi = np.array(psi)
 
-    C_c = []
-    for i in range(len(mat['Chemin']['C_c'][0, :])):
-        C_c.append(mat['Chemin']['C_c'][0, :][i][0][0])
-    C_c = np.array(C_c)
-    path_to_follow = path_data(X, psi, s, C_c)
+#     C_c = []
+#     for i in range(len(mat['Chemin']['C_c'][0, :])):
+#         C_c.append(mat['Chemin']['C_c'][0, :][i][0][0])
+#     C_c = np.array(C_c)
+#     path_to_follow = path_data(X, psi, s, C_c,0)
+#     return path_to_follow
+
+def default_path(X,Y):
+    return 5+9*np.array([cos(X),sin(Y)])
+
+def mat_reading(f=default_path):
+    def sum(X):
+        s = 0
+        if len(X)!=0 and len(X)!=1:
+            for x in X:
+                s += x
+        return s
+    n=4000
+    n=n+3
+
+    X=np.linspace(-10,10,n)
+    Y=np.linspace(-10,10,n)
+    X,Y=f(X,Y)
+    ds=np.array([((X[i+1]-X[i])**2+(Y[i+1]-Y[i])**2)**0.5 for i in range(0,n-1)])
+    S=np.array([sum(ds[0:i]) for i in range(n)])
+
+    dX=np.array([X[i+1]-X[i] for i in range(0,n-1)])
+    dY=np.array([Y[i+1]-Y[i] for i in range(0,n-1)])
+    
+    psi=arctan2(dY,dX)
+    dpsi=np.array([sawtooth(psi[i+1]-psi[i]) for i in range(0,n-2)])
+    ds=list(ds)
+    ds.pop()
+    ds=np.array(ds)
+    C=dpsi/ds
+    ds=list(ds)
+    ds.pop()
+    ds=np.array(ds)
+    dC=np.array([C[i+1]-C[i] for i in range(0,n-3)])
+    dC=dC/ds
+
+    X=list(X)
+    X.pop()
+    X.pop()
+    X.pop()
+    X=np.array(X)
+    
+    Y=list(Y)
+    Y.pop()
+    Y.pop()
+    Y.pop()
+    Y=np.array(Y)
+
+    psi=list(psi)
+    psi.pop()
+    psi.pop()
+    psi=np.array(psi)
+
+    S=list(S)
+    S.pop()
+    S.pop()
+    S.pop()
+    S=np.array(S)
+
+    C=list(C)
+    C.pop()
+    C=np.array(C)
+
+    XY=np.array([X,Y]).T
+    # print(np.shape(XY),np.shape(psi),np.shape(S),np.shape(C),np.shape(dC))
+    path_to_follow = path_data(XY, psi, S, C,dC)
     return path_to_follow
 
 
@@ -67,11 +133,8 @@ def find(elements, s):
 
 def path_info_update(path_info_last, s):
     I = find((path_info_last.s), s)
-    path_info = path_data(0, 0, 0, 0)
-    # if I=='None':
-    #     print('End of the path')
-    #     return None
-    # else:
+    path_info = path_data(0, 0, 0, 0,0)
+
     Delta_S_Lievre = (path_info_last.s)[I]-(path_info_last.s)[I-1]
     ratio_S_Lievre = (s-path_info_last.s[I-1])/Delta_S_Lievre
     path_info.s = s
@@ -81,6 +144,8 @@ def path_info_update(path_info_last, s):
         (1-ratio_S_Lievre) + path_info_last.C_c[I]*(ratio_S_Lievre)
     path_info.X = path_info_last.X[I-1] * \
         (1-ratio_S_Lievre) + path_info_last.X[I]*(ratio_S_Lievre)
+    path_info.dC_c=path_info_last.dC_c[I-1] * \
+        (1-ratio_S_Lievre) + path_info_last.dC_c[I]*(ratio_S_Lievre)
     return path_info
 
 
@@ -125,8 +190,7 @@ def show_info(ax, path_to_follow, P, Vt, theta, u, robot_parameters, sim_paramet
         ax.quiver(*P, *R(theta)@Vt, color='red', scale=10)
     #Drawing point Q
     ax.scatter(*path_info_update(path_to_follow, s).X, c='#34F44C')
-    for point in path:
-        ax.scatter(*point, c='red', s=10)
+    ax.plot(*np.array(path).T,c='red')
     info = 'u1 : '+str(round(u[0], 2))+'\n'+'u2 : ' + \
         str(round(u[1], 2)) + '\n'+'u3 : '+str(round(u[2], 2))
     ax.text(w_size/2, w_size+0.5, info, style='italic',
@@ -139,7 +203,7 @@ def show_info(ax, path_to_follow, P, Vt, theta, u, robot_parameters, sim_paramet
 
 def key_press():
     global end_of_path
-    alpha = 5
+    alpha = 1
     key = np.array([0, 0, 0])
     if keyboard.is_pressed("up"):
         key[0] = alpha
@@ -147,16 +211,16 @@ def key_press():
         key[0] = -alpha
     else:
         key[0] = 0
-    if keyboard.is_pressed("left"):
+    if keyboard.is_pressed("a"):
         key[1] = alpha
-    elif keyboard.is_pressed("right"):
+    elif keyboard.is_pressed("e"):
         key[1] = -alpha
     else:
         key[1] = 0
 
-    if keyboard.is_pressed("e"):
+    if keyboard.is_pressed("left"):
         key[2] = alpha
-    elif keyboard.is_pressed("d"):
+    elif keyboard.is_pressed("right"):
         key[2] = -alpha
     else:
         key[2] = 0
