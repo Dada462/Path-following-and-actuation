@@ -4,7 +4,7 @@ from numpy import cos, real, sin, tanh, arctan, arctan2, pi
 import numpy as np
 import keyboard
 import matplotlib.pyplot as plt
-from tools import rungeKutta2, sawtooth, R, path_info_update, draw_crab, show_info,mat_reading,mat_reading1,R3
+from tools import rungeKutta2, sawtooth, R, path_info_update, draw_crab, show_info,mat_reading,R3,colors,color
 import joystick
 
 
@@ -26,7 +26,6 @@ def state(X, controller):
 
 
 def controller(x):
-    #For the case when two motors are colinear
     global end_of_path
     X = x[0:2]
     Vt = x[2:4]
@@ -73,14 +72,12 @@ def controller(x):
     k3 = 1
     k5 = 1
     zeta = dddelta+ddtheta_c+(k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
-    ddbeta = (-u/(nu**2*mv)*(mur*u*zeta+dd_v+mur*du*dtheta_m)-2*dnu*(u*dv-du*v)/(nu**3)-du)/(1-(cos(beta_mes)**2)*mur/mv)
-    # ddbeta_mes = (-u/(nu**2*mv)*(mur*u*a+dd_v)-2*u*dnu * dv/(nu**3))/(1-(cos(beta_mes)**2)*mur/mv)
+    ddbeta = (-u/(nu**2*mv)*(mur*u*zeta+dd_v+mur*du*dtheta_m)-2*dnu*(u*dv-du*v)/(nu**3))/(1-(cos(beta_mes)**2)*mur/mv)
 
-    ddtheta_m = dddelta-ddbeta+ddtheta_c + (k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
+    ddtheta_m = dddelta-ddbeta+ddtheta_c + (k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*(delta-psi)
 
     F=A_plus@np.array([(d_u+2*(1-u)*mu),0,mr*ddtheta_m+d_r])
-    return np.array([*F,ds])
-
+    return np.array([*F,ds]),ddtheta_m
 
 def controller_1(x):
     #Has a singularity when two motors are colinear
@@ -112,7 +109,7 @@ def controller_1(x):
     delta = -psi_a*tanh(Kdy1*y1)
     ddelta = -psi_a*Kdy1*(1-tanh(Kdy1*y1)**2)*dy1
 
-    dnu=2*(1-nu)
+    dnu=2*(0.5-nu)
     dpsi=ddelta+2*sawtooth(delta-psi)
     dbeta=dpsi-dtheta_m+dtheta_c
     theta_m_d=-pi/2
@@ -124,7 +121,6 @@ def controller_1(x):
     F=np.linalg.pinv(zeta(A)@np.linalg.inv(M)@A)@zeta(A)@(R3(beta)@np.array([dnu,nu*dbeta,ddtheta_m])+d)
     return np.array([*F,ds])
 
-
 def zeta(A):
     if np.linalg.matrix_rank(A)<=1:
         return np.zeros((3,3))
@@ -132,6 +128,7 @@ def zeta(A):
         return np.array([[1,0,0],[0,1,0]])
     elif np.linalg.matrix_rank(A)>2:
         return np.eye(3)
+
 # Geometric parameters of the robot
 Xuu = -35
 Xvv = -128
@@ -153,102 +150,92 @@ mu = m-Xdu
 mr = Iz-Ndr
 
 
-alpha2=2*pi/3
-alpha3=-2.5
-d1=d2=d3=1
-d2=0
-L=1
-r=0.25
-D=np.array([[d1,0,0],[0,d2,0],[0,0,d3]])
-A=np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-L,-L,-L]])@D
-A_plus=np.linalg.pinv(A) #penrose inverse
-
 # Drawing and window info
-dt, w_size, w_shift = 0.01, 20, 0
+dt, w_size, w_shift = 0.1, 15, -7
 fig, ax = plt.subplots(figsize=(8, 7))
 
-# Lists to stock the information. For viewing resulsts after the simulation
-# T is the list temporal values, state_info[i] is the state x(t_i) where t_i=T[i]
-T, state_info = [], []
-t_break = 0  # it will be the time at which the simulation stops
+ALPHA=[(0,pi/2),(2*pi/3,-2*pi/3),(pi/3,2*pi/3)]
+for j in range(3):
+    alpha2,alpha3=ALPHA[j]
+    L=1
+    r=0.25
+    d1=d2=d3=1
+    d2=0
+    D=np.array([[d1,0,0],[0,d2,0],[0,0,d3]])
+    A=np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-L,-L,-L]])@D
+    A_plus=np.linalg.pinv(A) #penrose inverse
 
-# Initial conditions
-px0, py0 = -5, 10
-u0, v0 = 1,0
-theta0, dtheta0 = 0, 0
-s0 = 0
+    STATES=[]
+    Rmin=-10
+    Rmax=11
+    dR=2.5
+
+    for Radius in np.arange(Rmin,Rmax,dR):
+        # Lists to stock the information. For viewing resulsts after the simulation
+        # T is the list temporal values, state_info[i] is the state x(t_i) where t_i=T[i]
+        T, state_info = [], []
+        t_break = 0  # it will be the time at which the simulation stops
+
+        # Initial conditions
+        px0, py0 = -5, 10
+        u0, v0 = .5,0
+        theta0, dtheta0 = 0, 0
+        s0 = 0
+        #lambda a,b : 5+Radius*np.array([cos(a),sin(b)])
+        path_to_follow = mat_reading(lambda a,b :5+Radius*np.array([cos(a),sin(b)]))  # The path the robot has to follow
+        x0 = np.array([px0, py0, u0, v0, s0, theta0, dtheta0]) # (x,y,vu,vv,s,theta_m,dtheta_m)
+        path = [x0[0:2]]  # Red dots on the screen, path that the robot follows
 
 
-f1_0, f2_0, f3_0 = 0, 0, 0
-ds0 = 0
-def spiral(a,b):
-    return (a**2+b**2)**0.5*np.array([cos((a**2+b**2)),sin((a**2+b**2))])
-path_to_follow = mat_reading(lambda a,b : 2*spiral((a-5)/2,b/2))  # The path the robot has to follow
-x0 = np.array([px0, py0, u0, v0, s0, theta0, dtheta0]) # (x,y,vu,vv,s,theta_m,dtheta_m)
-u0 = np.array([f1_0, f2_0, f3_0,ds0])  # (f1,f2,f3)
-path = [x0[0:2]]  # Red dots on the screen, path that the robot follows
-# s=path_to_follow.s
-# path_to_follow.psi=sawtooth(path_to_follow.psi)
-# plt.plot(s,psi)
-# plt.show()
+        key = np.array([0, 0, 0])  # To control the robot using the keyboard
+        x = x0
 
-key = np.array([0, 0, 0])  # To control the robot using the keyboard
-x = x0
-u = u0
+        end_of_path = 0
+        Tmax=250
+        for t in np.arange(0, Tmax, dt):
+            if end_of_path:
+                print("End of simulation")
+                break
+            # Update of the state of the simulation
+            t_break = t
+            T.append(t)
+            u=controller_1(x)
+            d_r=-Nv*x[2]*x[3]-Nvabsv*x[3]*abs(x[3])-Nr*x[2]*x[5]
+            Gamma=(A@u[0:-1])[-1]
+            ddtheta_m=1/mr*(Gamma-d_r)
+            # x[6]-0*u[-1]/Radius
+            state_info.append(np.hstack((x,0)))
+            x = rungeKutta2(x, u, dt, state)
+            x[4] = max(0, x[4])
+        STATES.append(state_info)
 
-draw, end_of_path = 1, 0
-# joy = joystick.XboxController()
+    ax.clear()
+    i=0
+    x=colors()
+    C=[]
+    for c in x:
+        C.append(c.split(',')[-1])
 
-for t in np.arange(0, 1000, dt):
-    if end_of_path:
-        print("End of simulation")
-        break
-    # Drawing and screen update
-    if draw and (t/dt) % 45 == 0:
-        X = x[0:2]
-        Vt = x[2:4]
-        theta_m, dtheta_m = x[5:7]
-        s = x[4]
-        ax.clear()
-        ax.set_xlim(-w_size-w_shift, w_size-w_shift)
-        ax.set_ylim(-w_size, w_size)
-        show_info(ax, path_to_follow, X, Vt, theta_m, u, [0,alpha2,alpha3, 0.5, 0.25], [
-                  s, t], path, [w_size, w_shift], forces=True, speed=True)
-        draw_crab(X, theta_m, ax, 0.5, 0.25)
-        # ax.text(-w_size/2, w_size+0.5, 'delta:' +str(round(180*delta/pi,2)), style='italic',
-        #     bbox={'facecolor': 'red', 'alpha': 0.5, 'pad': 5})
-        if (t/dt) % 45 == 0:  # Change the value to change the frequency of the red dots of the path
-            path.append(X)
-        plt.pause(10**-10)
-    if keyboard.is_pressed("space"):
-        break
-    # Update of the state of the simulation
-    t_break = t
-    T.append(t)
-    state_info.append(x)
-    # if 20.1>t>20:
-    #     # if t<20.1:
-    #     d1=0
-    #     D=np.array([[d1,0,0],[0,d2,0],[0,0,d3]])
-    #     A=np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-L,-L,-L]])@D
-    #     A_plus=np.linalg.pinv(A) #penrose inverse
-    #     # u=controller(x)
-    # else:
-    #     u=controller_1(x)
-    u=controller_1(x)
-    # turn_left,turn_right,forward,backwards,A_button=joy.read()
-    # k2=100
-    # k1=100
-    # u[1:3]=np.array([k1*(forward-backwards)+k2*turn_left,-k1*(forward-backwards)+k2*turn_left])
-    x = rungeKutta2(x, u, dt, state)
-    x[4] = max(0, x[4])
-    # x[5] = sawtooth(x[5])
-
-# ax.clear()
-# state_info=np.array(state_info)
-# s=state_info[:,4]
-# data=state_info[:,5]
-# ax.plot(s,data, color='red')
-# ax.set_xlabel('time (s)')
-# ax.set_ylabel('data')
-# plt.show()
+    M=0
+    for state_info in STATES:
+        data=np.array(state_info)
+        ax.plot(T,data[:,6],label='Slope='+str(Rmin+dR*i),color=color(C,Rmin,Rmax,Rmin+dR*i))
+        M=max(M,max((data[:,6])))
+        # ax.plot(T,data[:,4]/30,label='θ',color='c')
+        # ax.plot(T,2*pi/3*np.ones(np.shape(T)),label='θ',color='c')
+        # ax.plot(T,arctan2(data[:,3],data[:,2]),label='θ',color='c')
+        i+=1
+    def get_sub(x):
+        normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-=()"
+        sub_s = "ₐ₈CDₑբGₕᵢⱼₖₗₘₙₒₚQᵣₛₜᵤᵥwₓᵧZₐ♭꜀ᑯₑբ₉ₕᵢⱼₖₗₘₙₒₚ૧ᵣₛₜᵤᵥwₓᵧ₂₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎"
+        res = x.maketrans(''.join(normal), ''.join(sub_s))
+        return x.translate(res)
+    print(M)
+    ax.set_xlabel('time (s)')
+    ax.set_ylabel('dθ'+get_sub('m')+'/dt')
+    ax.text(Tmax*2/3,3/4*M, '(β'+get_sub('2')+',β'+get_sub('3')+')=(' +str(round(alpha2,2)) +' rd, '+str(round(alpha3,2))+' rd)', style='italic',
+                bbox={'facecolor': 'red', 'alpha': 0.5, 'pad': 5})
+    plt.title('Behaviour of ' + 'dθ'+get_sub('m')+'/dt '+ 'for linear paths')
+    plt.legend(loc='lower right')
+    plt.savefig("linear_paths_2NC_"+str(j+1)+".png")
+    # plt.show()
