@@ -131,34 +131,7 @@ def zeta(A):
         return np.array([[1,0,0],[0,1,0]])
     elif np.linalg.matrix_rank(A)>2:
         return np.eye(3)
-# def zeta_1(x):
-#     u, v = x[2:4]
-#     nu = (u**2+v**2)**0.5
-#     beta=arctan2(v,u)
-#     M=np.array([[mu,0,0],[0,mv,0],[0,0,mr]])
-#     if 13:
-#         return np.array([[1,0,0],[0,1/nu,0],[0,0,1]])@R3(beta).T@np.linalg.inv(M)
-#     else:
-#         return np.linalg.inv(M)
-# def zeta_2(nu,delta,ddelta,psi,dtheta_c,theta_m,dtheta_m):
-#     dnu=2*(1-nu)
-#     dpsi=ddelta+2*sawtooth(delta-psi)
-#     dbeta=dpsi-dtheta_m+dtheta_c
-#     theta_m_d=-pi/2
-#     dtheta_m_d=0
-#     ddtheta_m_d=0
-#     ddtheta_m_orientation=ddtheta_m_d+2*(dtheta_m_d-dtheta_m)+1*(theta_m_d-theta_m)
-#     if 13:
-#         return np.array([dnu,dbeta,ddtheta_m_orientation])
-#     elif 24:
-#         u_rho_d=1
-#         du_rho=0
-#         k_rho=1
-#         du_rho=du_rho+k_rho*(u_rho_d-u_rho)
-#         zeta = dddelta+ddtheta_c+(k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
-#         ddbeta = (-u/(nu**2*mv)*(mur*u*zeta+dd_v+mur*du*dtheta_m)-2*dnu*(u*dv-du*v)/(nu**3)-du)/(1-(cos(beta_mes)**2)*mur/mv)
-#         ddtheta_m_path_following = dddelta-ddbeta+ddtheta_c + (k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
-#         return np.array([du_rho,ddtheta_m_path_following])
+
         
 # Geometric parameters of the robot
 Xuu = -35
@@ -192,7 +165,7 @@ A=np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-L,-L,-L
 A_plus=np.linalg.pinv(A) #penrose inverse
 
 # Drawing and window info
-dt, w_size, w_shift = 0.01, 20, 0
+dt, w_size, w_shift = 0.01, 20, -7
 fig, ax = plt.subplots(figsize=(8, 7))
 
 # Lists to stock the information. For viewing resulsts after the simulation
@@ -208,8 +181,6 @@ s0 = 0
 
 
 
-def spiral(a,b):
-    return (a**2+b**2)**0.5*np.array([cos((a**2+b**2)),sin((a**2+b**2))])
 path_to_follow = mat_reading(lambda a,b : 5+14*np.array([cos(a),sin(0.9*b)]))  # The path the robot has to follow
 x0 = np.array([px0, py0, u0, v0, s0, theta0, dtheta0]) # (x,y,vu,vv,s,theta_m,dtheta_m)
 path = [x0[0:2]]  # Red dots on the screen, path that the robot follows
