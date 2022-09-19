@@ -1,4 +1,4 @@
-# import scipy.io
+import scipy.io
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy import cos, sin, pi,arctan2
@@ -31,33 +31,33 @@ class path_data:
         return str(self.s) + ' ' + str(self.psi) + ' ' + str(self.C_c) + ' ' + str(self.X)
 
 
-# def mat_reading1(path='PATH.mat'):  # Return the path for follow info: s,X,psi,C_c
-#     mat = scipy.io.loadmat(path)
+def mat_reading1(path='PATH.mat'):  # Return the path for follow info: s,X,psi,C_c
+    mat = scipy.io.loadmat(path)
 
-#     s = []
-#     for i in range(len(mat['Chemin']['s'][0, :])):
-#         s.append(mat['Chemin']['s'][0, :][i][0][0])
-#     s = np.array(s)
+    s = []
+    for i in range(len(mat['Chemin']['s'][0, :])):
+        s.append(mat['Chemin']['s'][0, :][i][0][0])
+    s = np.array(s)
 
-#     X = np.array([[], []])
-#     for i in range(len(mat['Chemin']['X'][0, :])):
-#         X = np.hstack((X, mat['Chemin']['X'][0, :][i]))
-#     X = X.T
+    X = np.array([[], []])
+    for i in range(len(mat['Chemin']['X'][0, :])):
+        X = np.hstack((X, mat['Chemin']['X'][0, :][i]))
+    X = X.T
 
-#     psi = []
-#     for i in range(len(mat['Chemin']['psi'][0, :])):
-#         psi.append(mat['Chemin']['psi'][0, :][i][0][0])
-#     psi = np.array(psi)
+    psi = []
+    for i in range(len(mat['Chemin']['psi'][0, :])):
+        psi.append(mat['Chemin']['psi'][0, :][i][0][0])
+    psi = np.array(psi)
 
-#     C_c = []
-#     for i in range(len(mat['Chemin']['C_c'][0, :])):
-#         C_c.append(mat['Chemin']['C_c'][0, :][i][0][0])
-#     C_c = np.array(C_c)
-#     path_to_follow = path_data(X, psi, s, C_c,0)
-#     return path_to_follow
+    C_c = []
+    for i in range(len(mat['Chemin']['C_c'][0, :])):
+        C_c.append(mat['Chemin']['C_c'][0, :][i][0][0])
+    C_c = np.array(C_c)
+    path_to_follow = path_data(X, psi, s, C_c,0)
+    return path_to_follow
 
 def default_path(X,Y):
-    return 5+9*np.array([cos(X),sin(Y)])
+    return 5+9*np.array([cos(X),sin(0.9*Y)])
 
 def mat_reading(f=default_path):
     def sum(X):
@@ -79,7 +79,18 @@ def mat_reading(f=default_path):
     dY=np.array([Y[i+1]-Y[i] for i in range(0,n-1)])
     
     psi=arctan2(dY,dX)
+    # L=[]
+    # for i in range(len(psi)-1):
+    #     if abs(psi[i+1]-psi[i])>=6.2:
+    #         L.append(i)
+    # for k in range(len(L)-1):
+    #     psi[L[k]+1:L[k+1]+1]=psi[L[k]+1:L[k+1]+1]+(k+1)*2*pi
+    # psi[L[-1]+1:len(psi)]=psi[L[-1]+1:len(psi)]+(len(L)+1)*2*pi
     dpsi=np.array([sawtooth(psi[i+1]-psi[i]) for i in range(0,n-2)])
+    psi=np.array([sum(dpsi[0:i]) for i in range(n-2)])
+    psi=np.hstack((psi,arctan2(dY[-1],dX[-1])))
+    psi=psi+arctan2(dY[0],dX[0])
+
     ds=list(ds)
     ds.pop()
     ds=np.array(ds)
@@ -101,6 +112,7 @@ def mat_reading(f=default_path):
     Y.pop()
     Y.pop()
     Y=np.array(Y)
+
 
     psi=list(psi)
     psi.pop()
@@ -180,11 +192,11 @@ def show_info(ax, path_to_follow, P, Vt, theta, u, robot_parameters, sim_paramet
 
     if forces:
         ax.quiver(*(P+R(theta)@R(0)@np.array([L, 0])), *R(
-            theta-pi/2)@np.array([u[0], 0]), color='red', scale=10)
+            theta-pi/2)@np.array([u[0], 0]), color='red', scale=5000)
         ax.quiver(*(P+R(theta)@R(alpha2)@np.array([L, 0])), *R(
-            theta-pi/2+alpha2)@np.array([u[1], 0]), color='red', scale=10)
+            theta-pi/2+alpha2)@np.array([u[1], 0]), color='red', scale=5000)
         ax.quiver(*(P+R(theta)@R(alpha3)@np.array([L, 0])), *R(
-            theta-pi/2+alpha3)@np.array([u[2], 0]), color='red', scale=10)
+            theta-pi/2+alpha3)@np.array([u[2], 0]), color='red', scale=5000)
     #Drawing the speed
     if speed:
         ax.quiver(*P, *R(theta)@Vt, color='red', scale=10)
@@ -227,3 +239,18 @@ def key_press():
     if keyboard.is_pressed("space"):
         end_of_path = 1
     return key
+
+
+def colors():
+    color_file=open('Readables/AstroColors.txt', 'r').read()
+    x=color_file.split('\n')
+    return x
+def color(C,Vmin,Vmax,V):
+    if V>=Vmax:
+        return C[-1]
+    elif V<=Vmin:
+        return C[0]
+    else:
+        i=(V-Vmin)/(Vmax-Vmin)
+        i=int(i*(len(C)-1))
+        return C[i]

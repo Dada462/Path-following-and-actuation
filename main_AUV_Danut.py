@@ -25,7 +25,7 @@ def state(X, controller):
     return np.hstack((R(theta_m)@Vt, dVt, ds, dtheta_m, ddtheta_m))
 
 
-def controller(x):
+def controller_Col(x):
     #For the case when two motors are colinear
     global end_of_path
     X = x[0:2]
@@ -74,7 +74,6 @@ def controller(x):
     k5 = 1
     zeta = dddelta+ddtheta_c+(k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
     ddbeta = (-u/(nu**2*mv)*(mur*u*zeta+dd_v+mur*du*dtheta_m)-2*dnu*(u*dv-du*v)/(nu**3)-du)/(1-(cos(beta_mes)**2)*mur/mv)
-    # ddbeta_mes = (-u/(nu**2*mv)*(mur*u*a+dd_v)-2*u*dnu * dv/(nu**3))/(1-(cos(beta_mes)**2)*mur/mv)
 
     ddtheta_m = dddelta-ddbeta+ddtheta_c + (k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
 
@@ -82,8 +81,8 @@ def controller(x):
     return np.array([*F,ds])
 
 
-def controller_1(x):
-    #Has a singularity when two motors are colinear
+def controller_Non_Col(x):
+    #For the case when at least two motors are not colinear
     global end_of_path
     X = x[0:2]
     Vt = x[2:4]
@@ -132,6 +131,35 @@ def zeta(A):
         return np.array([[1,0,0],[0,1,0]])
     elif np.linalg.matrix_rank(A)>2:
         return np.eye(3)
+# def zeta_1(x):
+#     u, v = x[2:4]
+#     nu = (u**2+v**2)**0.5
+#     beta=arctan2(v,u)
+#     M=np.array([[mu,0,0],[0,mv,0],[0,0,mr]])
+#     if 13:
+#         return np.array([[1,0,0],[0,1/nu,0],[0,0,1]])@R3(beta).T@np.linalg.inv(M)
+#     else:
+#         return np.linalg.inv(M)
+# def zeta_2(nu,delta,ddelta,psi,dtheta_c,theta_m,dtheta_m):
+#     dnu=2*(1-nu)
+#     dpsi=ddelta+2*sawtooth(delta-psi)
+#     dbeta=dpsi-dtheta_m+dtheta_c
+#     theta_m_d=-pi/2
+#     dtheta_m_d=0
+#     ddtheta_m_d=0
+#     ddtheta_m_orientation=ddtheta_m_d+2*(dtheta_m_d-dtheta_m)+1*(theta_m_d-theta_m)
+#     if 13:
+#         return np.array([dnu,dbeta,ddtheta_m_orientation])
+#     elif 24:
+#         u_rho_d=1
+#         du_rho=0
+#         k_rho=1
+#         du_rho=du_rho+k_rho*(u_rho_d-u_rho)
+#         zeta = dddelta+ddtheta_c+(k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
+#         ddbeta = (-u/(nu**2*mv)*(mur*u*zeta+dd_v+mur*du*dtheta_m)-2*dnu*(u*dv-du*v)/(nu**3)-du)/(1-(cos(beta_mes)**2)*mur/mv)
+#         ddtheta_m_path_following = dddelta-ddbeta+ddtheta_c + (k1+k3)*(ddelta-dpsi)+(k5+k3*k1)*sawtooth(delta-psi)
+#         return np.array([du_rho,ddtheta_m_path_following])
+        
 # Geometric parameters of the robot
 Xuu = -35
 Xvv = -128
@@ -158,7 +186,7 @@ alpha3=-2.5
 d1=d2=d3=1
 d2=0
 L=1
-r=0.25
+r=0.25 #Size of the robot on the drawings, purely for drawing purposes
 D=np.array([[d1,0,0],[0,d2,0],[0,0,d3]])
 A=np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-L,-L,-L]])@D
 A_plus=np.linalg.pinv(A) #penrose inverse
@@ -173,38 +201,32 @@ T, state_info = [], []
 t_break = 0  # it will be the time at which the simulation stops
 
 # Initial conditions
-px0, py0 = -5, 10
-u0, v0 = 1,0
-theta0, dtheta0 = 0, 0
+px0, py0 = -5, 10 #Initial position
+u0, v0 = 1,0 #Initial speed
+theta0, dtheta0 = 0, 0 # Initial orientation and angular velocity
 s0 = 0
 
 
-f1_0, f2_0, f3_0 = 0, 0, 0
-ds0 = 0
+
 def spiral(a,b):
     return (a**2+b**2)**0.5*np.array([cos((a**2+b**2)),sin((a**2+b**2))])
-path_to_follow = mat_reading(lambda a,b : 2*spiral((a-5)/2,b/2))  # The path the robot has to follow
+path_to_follow = mat_reading(lambda a,b : 5+14*np.array([cos(a),sin(0.9*b)]))  # The path the robot has to follow
 x0 = np.array([px0, py0, u0, v0, s0, theta0, dtheta0]) # (x,y,vu,vv,s,theta_m,dtheta_m)
-u0 = np.array([f1_0, f2_0, f3_0,ds0])  # (f1,f2,f3)
 path = [x0[0:2]]  # Red dots on the screen, path that the robot follows
-# s=path_to_follow.s
-# path_to_follow.psi=sawtooth(path_to_follow.psi)
-# plt.plot(s,psi)
-# plt.show()
+
 
 key = np.array([0, 0, 0])  # To control the robot using the keyboard
 x = x0
-u = u0
 
 draw, end_of_path = 1, 0
-# joy = joystick.XboxController()
+# joy = joystick.XboxController() #To control the robot using a game controller
 
 for t in np.arange(0, 1000, dt):
     if end_of_path:
         print("End of simulation")
         break
     # Drawing and screen update
-    if draw and (t/dt) % 45 == 0:
+    if draw and (t/dt) % 15 == 0 and t!=0:
         X = x[0:2]
         Vt = x[2:4]
         theta_m, dtheta_m = x[5:7]
@@ -215,40 +237,31 @@ for t in np.arange(0, 1000, dt):
         show_info(ax, path_to_follow, X, Vt, theta_m, u, [0,alpha2,alpha3, 0.5, 0.25], [
                   s, t], path, [w_size, w_shift], forces=True, speed=True)
         draw_crab(X, theta_m, ax, 0.5, 0.25)
-        # ax.text(-w_size/2, w_size+0.5, 'delta:' +str(round(180*delta/pi,2)), style='italic',
-        #     bbox={'facecolor': 'red', 'alpha': 0.5, 'pad': 5})
-        if (t/dt) % 45 == 0:  # Change the value to change the frequency of the red dots of the path
+        if (t/dt) % 45 == 0:
             path.append(X)
         plt.pause(10**-10)
-    if keyboard.is_pressed("space"):
+    if keyboard.is_pressed("space"): # To break stop the simulation using the "space" key
+        print("End of simulation")
         break
     # Update of the state of the simulation
     t_break = t
     T.append(t)
+    u=controller_Non_Col(x)
     state_info.append(x)
-    # if 20.1>t>20:
-    #     # if t<20.1:
-    #     d1=0
-    #     D=np.array([[d1,0,0],[0,d2,0],[0,0,d3]])
-    #     A=np.array([[0,sin(alpha2),sin(alpha3)],[-1,-cos(alpha2),-cos(alpha3)],[-L,-L,-L]])@D
-    #     A_plus=np.linalg.pinv(A) #penrose inverse
-    #     # u=controller(x)
-    # else:
-    #     u=controller_1(x)
-    u=controller_1(x)
+    #To control the robot using a game controller
     # turn_left,turn_right,forward,backwards,A_button=joy.read()
     # k2=100
     # k1=100
     # u[1:3]=np.array([k1*(forward-backwards)+k2*turn_left,-k1*(forward-backwards)+k2*turn_left])
     x = rungeKutta2(x, u, dt, state)
     x[4] = max(0, x[4])
-    # x[5] = sawtooth(x[5])
+    x[5] = sawtooth(x[5])
 
+#To plot data after the simulation
 # ax.clear()
 # state_info=np.array(state_info)
-# s=state_info[:,4]
 # data=state_info[:,5]
-# ax.plot(s,data, color='red')
+# ax.plot(T,data, color='red')
 # ax.set_xlabel('time (s)')
 # ax.set_ylabel('data')
 # plt.show()
